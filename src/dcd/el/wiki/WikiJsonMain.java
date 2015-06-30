@@ -47,9 +47,24 @@ public class WikiJsonMain {
 					.getValue("anchor_text_list_file"), dstAnchorCountFileName = sect
 					.getValue("anchor_cnt_file"), dstNumTotalAnchorsFileName = sect
 					.getValue("num_anchors_file"), maxRefCntFileName = sect.getValue("max_ref_cnt_file");
-			JsonWikiTools.genEntityAliasCountFile(articleAnchorTextFileName,
+			JsonWikiTools.genEntityAliasCountFiles(articleAnchorTextFileName,
 					titleToWidFileName, dstAnchorTextListFileName,
 					dstAnchorCountFileName, dstNumTotalAnchorsFileName, maxRefCntFileName);
+		} else if (job.equals("rtitle_to_wid")) {
+			Section sect = config.getSection(job);
+			String fileName = sect.getValue("file"), dstFileName = sect.getValue("dst_file"),
+					titleToWidFileName = sect.getValue("title_wid_file");
+			int idx = sect.getIntValue("idx");
+			JsonWikiTools.rtitleToWidInFile(fileName, idx, titleToWidFileName, dstFileName);
+		} else if (job.equals("gen_dict_wiki_basis")) {
+			Section sect = config.getSection(job);
+			String anchorTextListFileName = sect.getValue("anchor_text_list_file"),
+					disambAliasWidFileName = sect.getValue("disamb_alias_wid_file"),
+					titleWidWithRedirectFileName = sect.getValue("redirect_title_wid_file"),
+					dstFileName = sect.getValue("dst_file");
+			
+			JsonWikiTools.genDictWikiBasis(anchorTextListFileName,
+					disambAliasWidFileName, titleWidWithRedirectFileName, dstFileName);
 		}
 	}
 

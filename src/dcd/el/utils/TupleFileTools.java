@@ -14,22 +14,31 @@ import dcd.el.io.IOUtils;
 
 public class TupleFileTools {
 	public static final int NUM_CHARS_LIM = 1024 * 1024 * 256;
-	public static final int NUM_LINE_LIM = 12000000;
+	public static final int NUM_LINE_LIM = 10000000;
 	private static final DecimalFormat DEC_FORMAT = new DecimalFormat("0000");
-
-	public static class StringFieldComparator implements Comparator<String> {
-		public StringFieldComparator(int fieldIdx) {
+	
+	public static class SingleFieldComparator implements Comparator<String> {
+		public SingleFieldComparator(int fieldIdx) {
 			this.fieldIdx = fieldIdx;
+		}
+		
+		public SingleFieldComparator(int fieldIdx, Comparator<String> fieldComparator) {
+			this.fieldIdx = fieldIdx;
+			this.fieldComparator = fieldComparator;
 		}
 
 		@Override
 		public int compare(String linel, String liner) {
 			String fieldl = CommonUtils.getFieldFromLine(linel, fieldIdx), fieldr = CommonUtils
 					.getFieldFromLine(liner, fieldIdx);
+			
+			if (fieldComparator != null)
+				return fieldComparator.compare(fieldl, fieldr);
 			return fieldl.compareTo(fieldr);
 		}
 
 		int fieldIdx = 0;
+		Comparator<String> fieldComparator = null;
 	}
 	
 	public static class MultiStringFieldComparator implements Comparator<String> {
@@ -51,9 +60,66 @@ public class TupleFileTools {
 		
 		int[] fieldIdxes = null;
 	}
+	
+	public static class SwapTransformer implements StringTransformer {
+		public SwapTransformer(int idx0, int idx1) {
+			this.idx0 = idx0;
+			this.idx1 = idx1;
+		}
 
+		@Override
+		public String transform(String str) {
+			String[] vals = str.split("\t");
+			String tmp = vals[idx0];
+			vals[idx0] = vals[idx1];
+			vals[idx1] = tmp;
+			
+			StringBuilder stringBuilder = new StringBuilder();
+			boolean isFirst = true;
+			for (String val : vals) {
+				if (isFirst)
+					isFirst = false;
+				else
+					stringBuilder.append("\t");
+				stringBuilder.append(val);
+			}
+			
+			return new String(stringBuilder);
+		}
+		
+		int idx0, idx1;
+	}
+	
+	public static void swap(String fileName, int idx0, int idx1, String dstFileName) {
+		SwapTransformer swapTransformer = new SwapTransformer(idx0, idx1);
+		transformLines(fileName, swapTransformer, dstFileName);
+	}
+
+	public static void transformLines(String fileName, StringTransformer lineTransformer, String dstFileName) {
+		BufferedReader reader = IOUtils.getUTF8BufReader(fileName);
+		BufferedWriter writer = IOUtils.getUTF8BufWriter(dstFileName, false);
+		if (writer == null)
+			return ;
+		
+		String line = null;
+		try {
+			while ((line = reader.readLine()) != null) {
+				String transformed = lineTransformer.transform(line);
+				if (transformed != null) {
+					writer.write(lineTransformer.transform(line));
+					writer.write("\n");
+				}
+			}
+			
+			reader.close();
+			writer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	
 	public static void join(String fileName0, String fileName1,
-			int idxCmp0, int idxCmp1, String dstFileName) {
+			int idxCmp0, int idxCmp1, String dstFileName, Comparator<String> fieldComparator) {
 		BufferedReader reader0 = IOUtils.getUTF8BufReader(fileName0), reader1 = IOUtils
 				.getUTF8BufReader(fileName1);
 		BufferedWriter writer = IOUtils.getUTF8BufWriter(dstFileName);
@@ -67,8 +133,15 @@ public class TupleFileTools {
 				String[] vals0 = line0.split("\t");
 
 				int cmpVal = -1;
-				while (line1 != null
-						&& (cmpVal = vals0[idxCmp0].compareTo(vals1[idxCmp1])) > 0) {
+				while (line1 != null) {
+					if (fieldComparator == null) {
+						cmpVal = vals0[idxCmp0].compareTo(vals1[idxCmp1]);
+					} else {
+						cmpVal = fieldComparator.compare(vals0[idxCmp0], vals1[idxCmp1]);
+					}
+					if (cmpVal <= 0)
+						break;
+					
 					line1 = reader1.readLine();
 					// ++rcnt;
 					if (line1 != null)
@@ -95,6 +168,13 @@ public class TupleFileTools {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+	
+	public static void sortAndRemoveDuplicates(String fileName, Comparator<String> tupleLineComparator,
+			String dstFileName) {
+		String tmpFileName = Paths.get(ELConsts.TMP_FILE_PATH, "sort_rm_dup.txt").toString();
+		sort(fileName, tmpFileName, tupleLineComparator);
+		removeDuplicates(tmpFileName, dstFileName);
 	}
 
 	public static void sort(String srcFileName, String dstFileName,
@@ -156,6 +236,82 @@ public class TupleFileTools {
 			writeLinesToFile(lines, dstFileName);
 			System.out.println("Done.");
 		}
+	}
+	
+	public static void removeDuplicates(String fileName, String dstFileName) {
+		BufferedReader reader = IOUtils.getUTF8BufReader(fileName);
+		BufferedWriter writer = IOUtils.getUTF8BufWriter(dstFileName, false);
+
+		try {
+			String line = null, preLine = null;
+			while ((line = reader.readLine()) != null) {
+				if (preLine == null || !line.equals(preLine)) {
+					writer.write(line + "\n");
+				}
+
+				preLine = line;
+			}
+
+			reader.close();
+			writer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	public static void merge(String[] srcFileNames,
+			String dstFileName) {
+		BufferedReader reader = null;
+		BufferedWriter writer = IOUtils.getUTF8BufWriter(dstFileName);
+
+		try {
+			for (String fileName : srcFileNames) {
+				System.out.println("processing " + fileName);
+
+				reader = IOUtils.getUTF8BufReader(fileName);
+
+				String line = null;
+				while ((line = reader.readLine()) != null) {
+					writer.write(line);
+					writer.write("\n");
+				}
+
+				reader.close();
+			}
+
+			writer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	public static boolean checkTupleFileOrder(String fileName, Comparator<String> comparator) {
+		BufferedReader reader = IOUtils.getUTF8BufReader(fileName);
+		
+		try {
+			int cnt = 0;
+			String line = null, preLine = null;
+			boolean flg = true;
+			while (flg && (line = reader.readLine()) != null) {
+				if (preLine != null && comparator.compare(preLine, line) > 0) {
+					System.out.println("line " + cnt + ": Not properly ordered.");
+					reader.close();
+					flg = false;
+					break;
+				}
+				preLine = line;
+				
+				++cnt;
+			}
+			
+			reader.close();
+			System.out.println("File properly ordered.");
+			return flg;
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		return false;
 	}
 
 	private static void sortTempFiles(int numTmpFiles, String dstFileName,

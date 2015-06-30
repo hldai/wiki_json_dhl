@@ -19,7 +19,9 @@ import dcd.el.io.Item;
 import dcd.el.io.ItemReader;
 import dcd.el.io.ItemWriter;
 import dcd.el.utils.StringToIntMapper;
+import dcd.el.utils.StringTransformer;
 import dcd.el.utils.TupleFileTools;
+import dcd.el.utils.TupleFileTools.SwapTransformer;
 
 public class JsonWikiTools {
 	public static class LinkComparator implements Comparator<Link> {
@@ -34,7 +36,7 @@ public class JsonWikiTools {
 		}
 	}
 
-	public static class AnchorTextCntLineComparator implements
+	public static class AliasWidCntLineComparator implements
 			Comparator<String> {
 
 		@Override
@@ -48,8 +50,90 @@ public class JsonWikiTools {
 			return valsl[1].compareTo(valsr[1]);
 		}
 	}
+	
+	private static class TitleToWidTransformer implements StringTransformer {
+		public TitleToWidTransformer(int idx, StringToIntMapper titleToWid) {
+			this.idx = idx;
+			this.titleToWid = titleToWid;
+		}
+		
+		@Override
+		public String transform(String str) {
+			String[] vals = str.split("\t");
+			Integer wid = titleToWid.getValue(vals[idx]);
+			if (wid == null)
+				return null;
+			
+			vals[idx] = String.valueOf(wid);
+			StringBuilder stringBuilder = new StringBuilder();
+			boolean isFirst = true;
+			for (String val : vals) {
+				if (isFirst)
+					isFirst = false;
+				else
+					stringBuilder.append("\t");
+				stringBuilder.append(val);
+			}
+			return new String(stringBuilder);
+		}
+		
+		int idx;
+		StringToIntMapper titleToWid = null;
+	}
+	
+	public static void genDictWikiBasis(String anchorTextListFileName, String disambAliasWidFileName, 
+			String titleWidWithRedirectFileName,
+			String dstFileName) {
+		String tmpFileName0 = Paths.get(ELConsts.TMP_FILE_PATH, "disamb_wid_alias.txt").toString(),
+				tmpFileName1 = Paths.get(ELConsts.TMP_FILE_PATH, "wid_title_with_redirect.txt").toString();
+		System.out.println("swaping " + disambAliasWidFileName);
+		TupleFileTools.swap(disambAliasWidFileName, 0, 1, tmpFileName0);
+		System.out.println("swaping " + titleWidWithRedirectFileName);
+		TupleFileTools.swap(titleWidWithRedirectFileName, 0, 1, tmpFileName1);
+		System.out.println("done");
 
-	public static void genEntityAliasCountFile(
+		System.out.println("merging...");
+		String tmpFileName2 = Paths.get(ELConsts.TMP_FILE_PATH, "merged_wiki_basis.txt").toString();
+		BufferedWriter writer = IOUtils.getUTF8BufWriter(tmpFileName2, false);
+		try {
+			BufferedReader reader = null;
+			String[] fileNames = { tmpFileName0, tmpFileName1 };
+			String line = null;
+			for (String fileName : fileNames) {
+				reader = IOUtils.getUTF8BufReader(fileName);
+				
+				while ((line = reader.readLine()) != null) {
+					writer.write(line + "\t1\n");
+				}
+				
+				reader.close();
+			}
+			
+			reader = IOUtils.getUTF8BufReader(anchorTextListFileName);
+			while ((line = reader.readLine()) != null) {
+				writer.write(line + "\n");
+			}
+			reader.close();
+			
+			
+			writer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		System.out.println("done");
+		
+		genMergedWidAliasCntFile(tmpFileName2, dstFileName);
+	}
+	
+	public static void rtitleToWidInFile(String fileName, int idx, String titleToWidFileName, String dstFileName) {
+		System.out.println("reading title to wid file.");
+		StringToIntMapper titleToWid = new StringToIntMapper(titleToWidFileName);
+		System.out.println("done.");
+		TitleToWidTransformer transformer = new TitleToWidTransformer(idx, titleToWid);
+		TupleFileTools.transformLines(fileName, transformer, dstFileName);
+	}
+
+	public static void genEntityAliasCountFiles(
 			String articleAnchorTextFileName, String titleToWidFileName,
 			String dstAnchorTextListFileName, String dstAnchorCountFileName,
 			String dstNumTotalAnchorsFileName, String maxRefCntFileName) {
@@ -58,68 +142,77 @@ public class JsonWikiTools {
 		genTmpAnchorTextListFile(articleAnchorTextFileName, titleToWidFileName,
 				tmpAnchorTextListFileName);
 
-		String tmpSortedAnchorTextListFileName = Paths.get(
-				ELConsts.TMP_FILE_PATH, "anchor_list_sorted.txt").toString();
-		TupleFileTools.sort(tmpAnchorTextListFileName,
-				tmpSortedAnchorTextListFileName,
-				new AnchorTextCntLineComparator());
+		genMergedWidAliasCntFile(tmpAnchorTextListFileName, dstAnchorTextListFileName);
 
-		BufferedWriter dstAnchorListWriter = IOUtils
-				.getUTF8BufWriter(dstAnchorTextListFileName, true), dstAnchorCountWriter = IOUtils
-				.getUTF8BufWriter(dstAnchorCountFileName, true);
-		BufferedReader reader = IOUtils
-				.getUTF8BufReader(tmpSortedAnchorTextListFileName);
+		BufferedWriter anchorCountWriter = IOUtils.getUTF8BufWriter(dstAnchorCountFileName, false);
+		BufferedReader reader = IOUtils.getUTF8BufReader(dstAnchorTextListFileName);
 		try {
-			int curWid = -1;
-			int curAnchorCnt = 0, curWidAnchorCnt = 0, allAnchorCnt = 0;
-			int maxRefCnt = 0;
-			String curAnchorDesc = null;
 			String line = null;
+			int curWid = -1;
+			int curAnchorCnt = 0, allAnchorCnt = 0, maxRefCnt = 0;
 			while ((line = reader.readLine()) != null) {
 				String[] vals = line.split("\t");
 				int wid = Integer.valueOf(vals[0]), anchorCnt = Integer
 						.valueOf(vals[2]);
 				allAnchorCnt += anchorCnt;
 				if (wid == curWid) {
-					curWidAnchorCnt += anchorCnt;
-					if (vals[1].equals(curAnchorDesc)) {
-						curAnchorCnt += anchorCnt;
-					} else {
-						dstAnchorListWriter.write(curWid + "\t" + curAnchorDesc
-								+ "\t" + curAnchorCnt + "\n");
-
-						curAnchorDesc = vals[1];
-						curAnchorCnt = anchorCnt;
-					}
+					curAnchorCnt += anchorCnt;
 				} else {
 					if (curWid != -1) {
-						dstAnchorListWriter.write(curWid + "\t" + curAnchorDesc
-								+ "\t" + curAnchorCnt + "\n");
-						dstAnchorCountWriter.write(curWid + "\t"
-								+ curWidAnchorCnt + "\n");
-						if (curWidAnchorCnt > maxRefCnt)
-							maxRefCnt = curWidAnchorCnt;
+						anchorCountWriter.write(curWid + "\t"
+								+ curAnchorCnt + "\n");
+						if (curAnchorCnt > maxRefCnt)
+							maxRefCnt = curAnchorCnt;
 					}
-
+					
 					curWid = wid;
-					curAnchorDesc = vals[1];
 					curAnchorCnt = anchorCnt;
-					curWidAnchorCnt = anchorCnt;
 				}
 			}
-			dstAnchorListWriter.write(curWid + "\t" + curAnchorDesc
-					+ "\t" + curAnchorCnt + "\n");
-			dstAnchorCountWriter.write(curWid + "\t"
-					+ curWidAnchorCnt + "\n");
-			if (curWidAnchorCnt > maxRefCnt)
-				maxRefCnt = curWidAnchorCnt;
-
-			dstAnchorListWriter.close();
-			dstAnchorCountWriter.close();
+			anchorCountWriter.write(curWid + "\t"
+					+ curAnchorCnt + "\n");
+			if (curAnchorCnt > maxRefCnt)
+				maxRefCnt = curAnchorCnt;
+			
+			anchorCountWriter.close();
 			reader.close();
 			
 			IOUtils.writeIntValueFile(dstNumTotalAnchorsFileName, allAnchorCnt);
 			IOUtils.writeIntValueFile(maxRefCntFileName, maxRefCnt);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	private static void genMergedWidAliasCntFile(String fileName, String dstFileName) {
+		String tmpFileName = Paths.get(ELConsts.TMP_FILE_PATH, "sorted_wid_alias_cnt.txt").toString();
+		TupleFileTools.sort(fileName, tmpFileName,
+				new AliasWidCntLineComparator());
+		BufferedReader reader = IOUtils.getUTF8BufReader(tmpFileName);
+		BufferedWriter writer = IOUtils.getUTF8BufWriter(dstFileName, false);
+		try {
+			String line = null;
+			String curAlias = null;
+			int curWid = -1, curWidAliasCnt = 0;
+			while ((line = reader.readLine()) != null) {
+				String[] vals = line.split("\t");
+				int wid = Integer.valueOf(vals[0]), widAliasCnt = Integer
+						.valueOf(vals[2]);
+				if (wid == curWid && vals[1].equals(curAlias)) {
+					curWidAliasCnt += widAliasCnt;
+				} else {
+					if (curWid != -1)
+						writer.write(curWid + "\t" + curAlias + "\t" + curWidAliasCnt + "\n");
+					
+					curWid = wid;
+					curAlias = vals[1];
+					curWidAliasCnt = widAliasCnt;
+				}
+			}
+			writer.write(curWid + "\t" + curAlias + "\t" + curWidAliasCnt + "\n");
+			
+			reader.close();
+			writer.close();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -149,32 +242,37 @@ public class JsonWikiTools {
 				StringBuilder linkListBuilder = new StringBuilder();
 				List<Link> links = article.getLinks();
 				Collections.sort(links, linkCmp);
-				Link preLink = null;
+				String preLinkId = null, preLinkDescription = null;
+				String linkId = null, linkDescription = null;
 				int linkCnt = 0;
 				for (Link link : links) {
-					if (link.getId().contains("\n")
-							|| link.getId().contains("\t")
-							|| link.getDescription().contains("\n")
-							|| link.getDescription().contains("\t")) {
+					linkId = link.getId().trim();
+					linkDescription = link.getDescription().trim();
+					if (linkId.length() == 0 || linkId.contains("\n")
+							|| linkId.contains("\t")
+							|| linkDescription.length() == 0
+							|| linkDescription.contains("\n")
+							|| linkDescription.contains("\t")) {
 						continue;
 					}
 
-					if (preLink != null && LinkEqual(preLink, link)) {
+					if (preLinkId != null && preLinkId.equals(linkId) && preLinkDescription.equals(linkDescription)) {
 						++linkCnt;
 					} else {
-						if (preLink != null) {
-							linkListBuilder.append(preLink.getId() + "\t"
-									+ preLink.getDescription() + "\t" + linkCnt
+						if (preLinkId != null) {
+							linkListBuilder.append(preLinkId + "\t"
+									+ preLinkDescription + "\t" + linkCnt
 									+ "\n");
 						}
 						linkCnt = 1;
 					}
 
-					preLink = link;
+					preLinkId = linkId;
+					preLinkDescription = linkDescription;
 				}
-				if (preLink != null)
-					linkListBuilder.append(preLink.getId() + "\t"
-							+ preLink.getDescription() + "\t" + linkCnt);
+				if (preLinkId != null)
+					linkListBuilder.append(preLinkId + "\t"
+							+ linkDescription + "\t" + linkCnt);
 
 				anchorItem.value = new String(linkListBuilder);
 
@@ -226,28 +324,6 @@ public class JsonWikiTools {
 
 	public static void test(String jsonFilePath) {
 		System.out.println(Article.getTitleInWikistyle("m&m's"));
-		// RecordReader<Article> reader = new
-		// RecordReader<Article>(jsonFilePath,
-		// new JsonRecordParser<Article>(Article.class));
-		//
-		// BufferedWriter writer = IOUtils.getUTF8BufWriter(
-		// "d:/data/el/tmp_files/tmp_str.txt", false);
-		//
-		// try {
-		// int cnt = 0;
-		// for (Article a : reader) {
-		// System.out.println(a.getWikiTitle());
-		// writer.write(a.toString() + "\n");
-		//
-		// ++cnt;
-		// if (cnt == 10)
-		// break;
-		// }
-		//
-		// writer.close();
-		// } catch (IOException e) {
-		// e.printStackTrace();
-		// }
 	}
 
 	public static void separateArticles(String jsonFilePath,
@@ -384,31 +460,41 @@ public class JsonWikiTools {
 		StringToIntMapper mapper = new StringToIntMapper(titleToWidFileName);
 		System.out.println("Done.");
 		ItemReader itemReader = new ItemReader(articleAnchorTextFileName, false);
-		Item anchorItem = null;
+		Item anchorItem = null, idItem = null;
 		BufferedWriter anchorTextListWriter = IOUtils.getUTF8BufWriter(
 				dstFileName, false);
 		int cnt = 0, lineCnt = 0;
 		try {
-			while (itemReader.readNextItem() != null) {
+			while ((idItem = itemReader.readNextItem()) != null) {
 				itemReader.readNextItem();
 				anchorItem = itemReader.readNextItem();
+				
+				++cnt;
+//				if (cnt == 10)
+//					break;
+				if (cnt % 1000000 == 0)
+					System.out.println(cnt);
 
+				if (anchorItem.numLines == 0)
+					continue;
+				
 				String[] lines = anchorItem.value.split("\n");
 				for (String line : lines) {
 					String[] vals = line.split("\t");
-					Integer wid = getWid(vals[0], mapper);
+					if (vals[0].length() == 0) {
+						System.err.println(idItem.value + " length is 0");
+						continue;
+					}
+					StringBuilder title = new StringBuilder();
+					title.append(Character.toUpperCase(vals[0].charAt(0)));
+					title.append(vals[0].substring(1, vals[0].length()));
+					Integer wid = getWid(new String(title), mapper);
 					if (wid != null) {
 						anchorTextListWriter.write(wid + "\t" + vals[1].toLowerCase() + "\t"
 								+ vals[2] + "\n");
 						++lineCnt;
 					}
 				}
-
-				++cnt;
-//				if (cnt == 10)
-//					break;
-				if (cnt % 1000000 == 0)
-					System.out.println(cnt);
 			}
 
 			anchorTextListWriter.close();
@@ -432,10 +518,5 @@ public class JsonWikiTools {
 			return titleToEidMapper.getValue(new String(sb));
 		}
 		return titleToEidMapper.getValue(title);
-	}
-
-	private static boolean LinkEqual(Link ll, Link lr) {
-		return ll.getId().equals(lr.getId())
-				&& ll.getDescription().equals(lr.getDescription());
 	}
 }
