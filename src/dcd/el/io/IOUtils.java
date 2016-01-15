@@ -15,6 +15,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.zip.GZIPInputStream;
 
 import dcd.el.ELConsts;
@@ -251,5 +253,15 @@ public class IOUtils {
 		}
 		
 		return new String(sb);
+	}
+	
+	public static long readLong(FileChannel fileChannel, ByteBuffer buf) {
+		try {
+			fileChannel.read(buf);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		buf.rewind();
+		return buf.asLongBuffer().get();
 	}
 }

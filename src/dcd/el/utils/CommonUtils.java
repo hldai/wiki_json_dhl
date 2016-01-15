@@ -2,7 +2,32 @@
 
 package dcd.el.utils;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
 public class CommonUtils {
+	public static long getLittleEndianLong(byte[] bytes) {
+		ByteBuffer buf = ByteBuffer.wrap(bytes);
+		buf.order(ByteOrder.LITTLE_ENDIAN);
+		return buf.asLongBuffer().get();
+	}
+	
+	public static int getLittleEndianInt(byte[] bytes) {
+		ByteBuffer buf = ByteBuffer.wrap(bytes);
+		buf.order(ByteOrder.LITTLE_ENDIAN);
+		return buf.asIntBuffer().get();
+	}
+	
+	public static float[] getLittleEndianFloatArray(byte[] bytes) {
+		float[] vals = new float[bytes.length / Float.BYTES];
+		
+		ByteBuffer buf = ByteBuffer.wrap(bytes);
+		buf.order(ByteOrder.LITTLE_ENDIAN);
+		buf.asFloatBuffer().get(vals);
+		
+		return vals;
+	}
+	
 	// a line: 
 	// <subject>	<predicate>	<object>	.
 	// does not necessarily work for all kind of files 

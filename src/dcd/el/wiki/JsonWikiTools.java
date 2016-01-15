@@ -38,7 +38,6 @@ public class JsonWikiTools {
 
 	public static class AliasWidCntLineComparator implements
 			Comparator<String> {
-
 		@Override
 		public int compare(String linel, String liner) {
 			String[] valsl = linel.split("\t"), valsr = liner.split("\t");
@@ -323,7 +322,16 @@ public class JsonWikiTools {
 	}
 
 	public static void test(String jsonFilePath) {
-		System.out.println(Article.getTitleInWikistyle("m&m's"));
+		RecordReader<Article> reader = new RecordReader<Article>(jsonFilePath,
+				new JsonRecordParser<Article>(Article.class));
+		System.out.println(jsonFilePath);
+		int cnt = 0;
+		for (Article article : reader) {
+			List<Link> categories = article.getCategories();
+			for (Link category : categories) {
+				System.out.println(category.getId());
+			}
+		}
 	}
 
 	public static void separateArticles(String jsonFilePath,

@@ -65,6 +65,11 @@ public class WikiJsonMain {
 			
 			JsonWikiTools.genDictWikiBasis(anchorTextListFileName,
 					disambAliasWidFileName, titleWidWithRedirectFileName, dstFileName);
+		} else if (job.equals("gen_article_categories")) {
+			Section sect = config.getSection(job);
+			String jsonFilePath = sect.getValue("json_file"), wordVectorFileName = sect.getValue("word_vec_file"),
+					dstFilePath = sect.getValue("dst_file");
+			VecRepTools.genEntityCategoryRep(jsonFilePath, wordVectorFileName, dstFilePath);
 		}
 	}
 
